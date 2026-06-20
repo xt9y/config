@@ -46,12 +46,9 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 require("mason").setup({})
-require("mason-lspconfig").setup({})
 
-local lspconfig = require("lspconfig")
-lspconfig.clangd.setup({
-    cmd = { "clangd" },
-})
+vim.lsp.config.clangd = { cmd = { "clangd" }, }
+vim.lsp.enable("clangd")
 
 require("telescope").setup({})
 
