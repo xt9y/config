@@ -48,6 +48,11 @@ vim.api.nvim_create_autocmd("LspAttach", {
 require("mason").setup({})
 require("mason-lspconfig").setup({})
 
+local lspconfig = require("lspconfig")
+lspconfig.clangd.setup({
+    cmd = { "clangd" },
+})
+
 require("telescope").setup({})
 
 require("Comment").setup({ toggler = { line = "gcc", block = "gbc" }, opleader = { line = "gc", block = "gb"}, })
