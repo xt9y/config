@@ -24,12 +24,10 @@ vim.o.pumborder = "none"
 vim.o.pumblend = 10
 
 vim.pack.add {
-    'https://github.com/neovim/nvim-lspconfig.git',
     'https://github.com/mason-org/mason.nvim.git',
     'https://github.com/mason-org/mason-lspconfig.nvim.git',
     'https://github.com/neovim/nvim-lspconfig.git',
     'https://github.com/morhetz/gruvbox.git',
-    'https://github.com/bluz71/vim-moonfly-colors',
     'https://github.com/rebelot/kanagawa.nvim',
     'https://github.com/nvim-lua/plenary.nvim.git', 
     'https://github.com/nvim-telescope/telescope.nvim.git',
@@ -48,9 +46,27 @@ vim.api.nvim_create_autocmd("LspAttach", {
 require("mason").setup({})
 require("mason-lspconfig").setup({})
 
-require("telescope").setup({})
+require("telescope").setup({
+    defaults = {
+        file_ignore_patterns = {
+            "^build/",
+            "^cmake%-build.*",
+            "^out/",
+            "^%.git/",
+        },
+    },
+})
 
-require("Comment").setup({ toggler = { line = "gcc", block = "gbc" }, opleader = { line = "gc", block = "gb"}, })
+require("Comment").setup({ 
+    toggler = { 
+        line = "gcc", 
+        block = "gbc" 
+    }, 
+    opleader = { 
+        line = "gc", 
+        block = "gb"
+    }, 
+})
 
 vim.cmd.colorscheme("retrobox")
 
@@ -79,3 +95,4 @@ vim.keymap.set("n", "<Space><Space>", function() require("telescope.builtin").fi
 vim.keymap.set("n", "<Space><Enter>", function() require("telescope.builtin").live_grep()  end)
 vim.keymap.set("n", "hh", open_in("v"))
 vim.keymap.set("n", "vv", open_in("h"))
+vim.keymap.set("n", "cc", function() vim.cmd("e ~/.config/nvim/init.lua") end)
