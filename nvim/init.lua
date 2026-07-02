@@ -46,15 +46,13 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 require("mason").setup({})
-
-vim.lsp.config.clangd = { cmd = { "clangd" }, }
-vim.lsp.enable("clangd")
+require("mason-lspconfig").setup({})
 
 require("telescope").setup({})
 
 require("Comment").setup({ toggler = { line = "gcc", block = "gbc" }, opleader = { line = "gc", block = "gb"}, })
 
-vim.cmd.colorscheme("gruvbox")
+vim.cmd.colorscheme("retrobox")
 
 local function open_in(split)
     return function()
