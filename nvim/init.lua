@@ -115,6 +115,31 @@ vim.api.nvim_create_autocmd("LspAttach", {
     end,
 })
 
+-- diagnostics
+vim.diagnostic.config({
+    virtual_text = {
+        spacing = 4,
+        prefix = "●",
+    },
+    signs = true,
+    underline = true,
+    update_in_insert = false,
+    severity_sort = true,
+    float = {
+        border = "rounded",
+        source = "always",
+    },
+})
+
+-- show diagnostic popup on hover
+vim.api.nvim_create_autocmd("CursorHold", {
+    callback = function()
+        vim.diagnostic.open_float(nil, {
+            focus = false,
+            scope = "cursor",
+        })
+    end,
+})
 
 -- llvm ir
 vim.api.nvim_create_autocmd("FileType", {
@@ -155,25 +180,27 @@ require("Comment").setup({
 
 
 -- theme
-require("black-metal").setup({
-    theme = "darkthrone", -- khold 
-    variant = "dark",
-    alt_bg = true,
+-- require("black-metal").setup({
+--     theme = "darkthrone", -- khold 
+--     variant = "dark",
+--     alt_bg = true,
+--
+--     code_style = {
+--         comments = "italic",
+--         conditionals = "none",
+--         functions = "none",
+--         keywords = "none",
+--         headings = "bold",
+--         operators = "none",
+--         keyword_return = "none",
+--         strings = "none",
+--         variables = "none",
+--     },
+-- })
 
-    code_style = {
-        comments = "italic",
-        conditionals = "none",
-        functions = "none",
-        keywords = "none",
-        headings = "bold",
-        operators = "none",
-        keyword_return = "none",
-        strings = "none",
-        variables = "none",
-    },
-})
-
-require("black-metal").load()
+-- require("black-metal").load()
+--
+vim.cmd.colorscheme("retrobox")
 
 
 -- telescope open helpers
