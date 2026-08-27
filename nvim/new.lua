@@ -95,9 +95,14 @@ require("mason-tool-installer").setup({})
 
 
 -- lsp
+vim.lsp.config("clangd", {
+    cmd = { "env", "LC_ALL=C", "clangd", "--query-driver=/usr/bin/cc", "--resource-dir=/usr/lib/clang/21" },
+})
+
 vim.lsp.enable({
     "zls",
     "ols",
+    "clangd",
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
