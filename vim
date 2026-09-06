@@ -1,4 +1,8 @@
 set tabstop=4
+set termguicolors
+set background=dark
+colorscheme retrobox
+
 set completeopt=menuone,noselect
 
 filetype on
