@@ -1,4 +1,6 @@
+set tabstop=4
 set completeopt=menuone,noselect
+
 filetype on
 if v:version < 900 || !has('job') || !has('channel') || !executable('clangd') | finish | endif
 
