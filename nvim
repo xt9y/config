@@ -13,10 +13,15 @@ vim.opt.linebreak = false
 vim.opt.sidescroll = 1
 vim.opt.sidescrolloff = 1
 
-vim.opt.complete:append("o")
-vim.opt.completeopt = {"menuone", "noselect"}
-
 vim.o.autocomplete = true
+vim.opt.complete = { "o" }
+
+vim.opt.completeopt = {
+    "menuone",
+    "noselect",
+    "popup",
+}
+
 vim.o.pumheight = 5
 vim.o.pumborder = "none"
 vim.o.pumblend = 10
@@ -56,6 +61,12 @@ vim.filetype.add({
         ll = "llvm",
         zig = "zig",
         odin = "odin",
+        hlsl = "hlsl",
+        hlsli = "hlsl",
+        fx = "hlsl",
+        fxh = "hlsl",
+        usf = "hlsl",
+        ush = "hlsl",
     },
 })
 
@@ -70,6 +81,7 @@ require("nvim-treesitter").install({
     "bash",
     "json",
     "markdown",
+    "hlsl",
 })
 
 vim.api.nvim_create_autocmd("FileType", {
@@ -88,6 +100,7 @@ require("mason-lspconfig").setup({
     ensure_installed = {
         "zls",
         "ols",
+        "slangd",
     },
 })
 
@@ -95,25 +108,38 @@ require("mason-tool-installer").setup({})
 
 
 -- lsp
+vim.lsp.config("clangd", {
+    cmd = {
+        "env",
+        "LC_ALL=C",
+        "clangd",
+        "--query-driver=/usr/bin/cc",
+        "--resource-dir=/usr/lib/clang/21"
+    },
+})
+
 vim.lsp.enable({
     "zls",
     "ols",
+    "clangd",
+    "slangd",
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(ev)
         local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
 
-        if client:supports_method("textDocument/completion") then
-            vim.lsp.completion.enable(
-                true,
-                client.id,
-                ev.buf,
-                {autotrigger = true}
-            )
-        end
+        -- if client:supports_method("textDocument/completion") then
+        --     vim.lsp.completion.enable(
+        --         true,
+        --         client.id,
+        --         ev.buf,
+        --         { autotrigger = true }
+        --     )
+        -- end
     end,
 })
+
 
 -- diagnostics
 vim.diagnostic.config({
@@ -131,7 +157,6 @@ vim.diagnostic.config({
     },
 })
 
--- show diagnostic popup on hover
 vim.api.nvim_create_autocmd("CursorHold", {
     callback = function()
         vim.diagnostic.open_float(nil, {
@@ -140,6 +165,7 @@ vim.api.nvim_create_autocmd("CursorHold", {
         })
     end,
 })
+
 
 -- llvm ir
 vim.api.nvim_create_autocmd("FileType", {
@@ -152,7 +178,43 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 
 
+-- hlsl (commentstring; highlighting comes from treesitter,
+-- completion/diagnostics/hover from slangd via the LspAttach
+-- autocommand above)
+vim.api.nvim_create_autocmd("FileType", {
+    pattern = "hlsl",
+    callback = function()
+        vim.bo.commentstring = "// %s"
+    end,
+})
+
+
 -- telescope
+-- NOTE: vim.uv.cwd() returns nil when the directory nvim is sitting in
+-- was deleted/renamed out from under it. Telescope then crashes with
+-- "path: expected string, got nil" (utils.lua path_expand). So every
+-- telescope call below goes through safe_cwd() instead of relying on
+-- the implicit cwd.
+local function safe_cwd()
+    if vim.uv.cwd() then
+        return vim.uv.cwd()
+    end
+    local bufdir = vim.fn.expand("%:p:h")
+    if bufdir ~= "" and vim.uv.fs_stat(bufdir) then
+        return bufdir
+    end
+    return vim.fn.expand("~")
+end
+
+-- if we are already in a dead cwd at startup, get out of it so :make,
+-- lsp root detection, etc. don't misbehave either
+if not vim.uv.cwd() then
+    vim.cmd.cd(vim.fn.expand("~"))
+    vim.schedule(function()
+        vim.notify("cwd no longer exists, moved to $HOME", vim.log.levels.WARN)
+    end)
+end
+
 require("telescope").setup({
     defaults = {
         file_ignore_patterns = {
@@ -181,7 +243,7 @@ require("Comment").setup({
 
 -- theme
 -- require("black-metal").setup({
---     theme = "darkthrone", -- khold 
+--     theme = "darkthrone",
 --     variant = "dark",
 --     alt_bg = true,
 --
@@ -197,9 +259,9 @@ require("Comment").setup({
 --         variables = "none",
 --     },
 -- })
-
--- require("black-metal").load()
 --
+-- require("black-metal").load()
+
 vim.cmd.colorscheme("retrobox")
 
 
@@ -207,18 +269,30 @@ vim.cmd.colorscheme("retrobox")
 local function open_in(split)
     return function()
         require("telescope.builtin").find_files({
+            cwd = safe_cwd(),
             attach_mappings = function(prompt_bufnr, map)
 
                 local open = function()
                     local sel = require("telescope.actions.state").get_selected_entry()
                     require("telescope.actions").close(prompt_bufnr)
 
+                    if not sel then
+                        return
+                    end
+
+                    local path = sel.path or sel.filename
+
+                    if not path then
+                        vim.notify("no path for selected entry", vim.log.levels.WARN)
+                        return
+                    end
+
                     if split == "v" then
-                        vim.cmd("vsplit " .. sel.path)
+                        vim.cmd.vsplit(vim.fn.fnameescape(path))
                     elseif split == "h" then
-                        vim.cmd("split " .. sel.path)
+                        vim.cmd.split(vim.fn.fnameescape(path))
                     else
-                        vim.cmd("edit " .. sel.path)
+                        vim.cmd.edit(vim.fn.fnameescape(path))
                     end
                 end
 
@@ -238,11 +312,11 @@ vim.keymap.set("n", "mm", function()
 end)
 
 vim.keymap.set("n", "<Space><Space>", function()
-    require("telescope.builtin").find_files()
+    require("telescope.builtin").find_files({ cwd = safe_cwd() })
 end)
 
 vim.keymap.set("n", "<Space><Enter>", function()
-    require("telescope.builtin").live_grep()
+    require("telescope.builtin").live_grep({ cwd = safe_cwd() })
 end)
 
 vim.keymap.set("n", "hh", open_in("v"))
@@ -251,3 +325,4 @@ vim.keymap.set("n", "vv", open_in("h"))
 vim.keymap.set("n", "cc", function()
     vim.cmd("e ~/.config/nvim/init.lua")
 end)
+
