@@ -10,8 +10,9 @@ vim.opt.signcolumn = "yes"
 vim.opt.updatetime = 300
 vim.opt.wrap = false
 vim.opt.linebreak = false
+vim.opt.scrolloff = 900
 vim.opt.sidescroll = 1
-vim.opt.sidescrolloff = 1
+vim.opt.sidescrolloff = 10
 
 vim.o.autocomplete = true
 vim.opt.complete = { "o" }
@@ -110,33 +111,40 @@ require("mason-tool-installer").setup({})
 -- lsp
 vim.lsp.config("clangd", {
     cmd = {
-        "env",
-        "LC_ALL=C",
         "clangd",
-        "--query-driver=/usr/bin/cc",
-        "--resource-dir=/usr/lib/clang/21"
+        "--background-index",
+    },
+
+    root_markers = {
+        "compile_commands.json",
+        "compile_flags.txt",
+        ".git",
     },
 })
 
 vim.lsp.enable({
+    "clangd",
     "zls",
     "ols",
-    "clangd",
     "slangd",
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
     callback = function(ev)
-        local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
+        local client = assert(
+            vim.lsp.get_client_by_id(ev.data.client_id)
+        )
 
-        -- if client:supports_method("textDocument/completion") then
-        --     vim.lsp.completion.enable(
-        --         true,
-        --         client.id,
-        --         ev.buf,
-        --         { autotrigger = true }
-        --     )
-        -- end
+        if client:supports_method("textDocument/completion") then
+            vim.lsp.completion.enable(
+                true,
+                client.id,
+                ev.buf,
+                {
+                    autotrigger = true,
+                }
+            )
+        end
     end,
 })
 
