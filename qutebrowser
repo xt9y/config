@@ -1,0 +1,43 @@
+config.load_autoconfig(True)
+
+# Your custom settings below
+c.tabs.position = "top"
+
+config.bind("K", "tab-next")
+config.bind("J", "tab-prev")
+config.bind(
+    '0',
+    'spawn --detach /opt/homebrew/bin/mpv {url}'
+)
+
+# Open all new tabs in background
+c.tabs.background = True
+
+# Tab bar background
+c.colors.tabs.bar.bg = "#ffffff"
+
+# Unselected tabs: black background with white text
+c.colors.tabs.odd.bg = "#cacaca"
+c.colors.tabs.odd.fg = "#3e3e3e"
+c.colors.tabs.even.bg = "#efefef"
+c.colors.tabs.even.fg = "#3a3a3a"
+
+# Selected tab: white background with black text
+c.colors.tabs.selected.odd.bg = "#ff0055"
+c.colors.tabs.selected.odd.fg = "#ffffff"
+c.colors.tabs.selected.even.bg = "#ff0055"
+c.colors.tabs.selected.even.fg = "#ffffff"
+
+# Download directory
+c.downloads.location.directory = "~/Downloads"
+# Automatically save downloads without asking
+c.downloads.location.prompt = True 
+# Show download bar
+c.downloads.remove_finished = 5000
+# Open downloads in a new tab after starting
+c.downloads.position = "bottom"
+# Ask for filename
+c.downloads.location.prompt = True
+
+# Change cache size
+c.content.cache.size = 2147483647
