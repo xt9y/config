@@ -7,30 +7,18 @@ Usage:
   felix-format [-i] [--check] [--diff] [--no-clang] file [file ...]
   felix-format < file.c            # stdin -> stdout
 
-Pipeline per file: dependency-safe include normalization -> clang-format with
-Felix's built-in style -> designated-initializer expansion -> airy blank-line
-pass.
+Pipeline per file: clang-format (embedded main.m style, always 4-space
+tabs) -> if-brace attach (if/else K&R to match src/main.m) -> airy
+blank-line pass.
+The airy pass only ADDS single blank lines at statement boundaries and
+preserves your manual single/double blanks (3+ collapse to 2). It never
+joins lines, never reindents, never touches the inside of multi-line
+calls / initializers / ternaries.
 
-The formatter is intentionally self-contained: it does not depend on a repo
-.clang-format file, and clang-format is never allowed to sort includes.
-
-build.c:
-
-static void format_sources(void) {
-#if defined(_WIN32)
-    const char *command = "powershell -NoProfile -ExecutionPolicy Bypass -Command "
-                          "\"py .\\felix-format -i "
-                          "(Get-ChildItem -File *.c,*.h | ForEach-Object FullName)\"";
-#else
-    const char *command = "./felix-format -i *.c *.h";
-#endif
-
-    if (system(command) != 0) {
-        fprintf(stderr, "felix-format failed\n");
-        exit(1);
-    }
-}
-
+Style target is METAL src/main.m 100%: same spacing, same brace placement
+(Allman for functions/for/while/autoreleasepool, K&R attach for if/else),
+same blank-line paragraphs, but always with 4-space-wide tabs
+(IndentWidth=4, TabWidth=4, UseTab=Never).
 """
 import argparse
 import difflib
@@ -43,51 +31,57 @@ CONTROL = ("if", "for", "while", "switch", "return", "break", "continue", "goto"
 CONTROL_RE = re.compile(r"^(if|for|while|switch|return|break|continue|goto)\b")
 HEADER_RE = re.compile(r"^(if|for|while|switch|else|do)\b")
 CASE_RE = re.compile(r"^(case\b|default\b)")
+# Fixed DECL_RE: old pattern greedily ate all but the last char of
+# two-word decls without '*' (e.g. 'vector_float3 eye =' -> 'e',
+# 'const float scale =' -> 'e'). New pattern forces Type (*|space) Name.
 DECL_RE = re.compile(
     r"^\s*(?:(?:const|static|extern|register|volatile|inline|_Atomic"
     r"|unsigned|signed|long|short)\s+)*"
     r"[A-Za-z_]\w*"
-    r"(?:\s+[A-Za-z_]\w*)?"
-    r"\s*\**\s*"
+    r"(?:\s*\*\s*|\s+)"
     r"(?P<name>[A-Za-z_]\w*)"
     r"\s*(?:\[[^\]]*\]\s*)*"
     r"\s*(?:=|;)"
 )
-
-FELIX_STYLE = """{
-BasedOnStyle: LLVM,
-Standard: Latest,
-ColumnLimit: 180,
-IndentWidth: 4,
-TabWidth: 4,
-ContinuationIndentWidth: 4,
-UseTab: Never,
-BreakBeforeBraces: Attach,
-AllowShortIfStatementsOnASingleLine: AllIfsAndElse,
-AllowShortFunctionsOnASingleLine: Empty,
-AllowShortBlocksOnASingleLine: Never,
-AllowAllParametersOfDeclarationOnNextLine: true,
-AllowAllArgumentsOnNextLine: true,
-BinPackParameters: false,
-BinPackArguments: false,
-DerivePointerAlignment: false,
-PointerAlignment: Right,
-ReferenceAlignment: Right,
-AlignAfterOpenBracket: BlockIndent,
-AlignOperands: Align,
-SpaceBeforeParens: ControlStatements,
-SpaceAfterCStyleCast: false,
-SpaceBeforeCpp11BracedList: false,
-Cpp11BracedListStyle: true,
-SortIncludes: false,
-IncludeBlocks: Preserve,
-MaxEmptyLinesToKeep: 2,
-IndentCaseLabels: true,
-IndentGotoLabels: false,
-ReflowComments: false,
-BreakBeforeBinaryOperators: None
-}""".replace("\n", " ")
-
+# Embedded clang-format style reproducing METAL src/main.m 100%, but with
+# 4-space-wide tabs always (IndentWidth=4, TabWidth=4, UseTab=Never).
+# Derived by diffing clang-format outputs against src/main.m:
+# - Allman brace break matches functions/for/@autoreleasepool in main.m
+#   (if/else are re-attached afterwards to K&R to match main.m's single
+#   'if (bloomStrength > 0) {').
+# - ColumnLimit 0 keeps main.m's long single lines (e.g. 105-col addPost
+#   signature, 101-col fmaxf scale line) unbroken.
+# - BreakAfterOpenBracketBracedList/BreakBeforeCloseBracketBracedList keep
+#   multi-line (Sky){...}, (Camera){...} etc. with closing '};' on its own
+#   line at parent indent, exactly like main.m.
+# - AllowShortIfStatementsOnASingleLine preserves 'if (!model) return 1;'.
+FELIX_CLANG_STYLE = (
+    "{BasedOnStyle: LLVM, "
+    "BreakBeforeBraces: Allman, "
+    "ColumnLimit: 0, "
+    "IndentWidth: 4, TabWidth: 4, UseTab: Never, "
+    "ContinuationIndentWidth: 4, "
+    "ObjCBlockIndentWidth: 4, "
+    "BracedInitializerIndentWidth: 4, "
+    "ConstructorInitializerIndentWidth: 4, "
+    "PPIndentWidth: 4, "
+    "AccessModifierOffset: -4, "
+    "PointerAlignment: Right, DerivePointerAlignment: false, "
+    "SpaceBeforeParens: ControlStatements, "
+    "SpaceBeforeCpp11BracedList: false, "
+    "SpaceBeforeAssignmentOperators: true, "
+    "AllowShortIfStatementsOnASingleLine: Always, "
+    "AllowShortBlocksOnASingleLine: Always, "
+    "AllowShortFunctionsOnASingleLine: All, "
+    "BinPackArguments: true, BinPackParameters: true, "
+    "BinPackLongBracedList: true, "
+    "BreakAfterOpenBracketBracedList: true, "
+    "BreakBeforeCloseBracketBracedList: true, "
+    "BreakAdjacentStringLiterals: true, "
+    "ObjCSpaceAfterProperty: false, ObjCSpaceBeforeProtocolList: true, "
+    "ObjCBinPackProtocolList: Auto, "
+    "LineEnding: LF}"
+)
 # A line ending in ';', '{', '}' or ':' is a complete statement boundary.
 # Anything else (operators, commas, openers) means the statement continues.
 CONT_START = (
@@ -153,17 +147,6 @@ def decl_name(s):
     return m.group("name") if m else None
 
 
-def is_designated_initializer_start(s):
-    """True for declaration lines like `OBJECT object = {`."""
-    code = strip_code(s).rstrip()
-    return is_decl(s) and code.endswith("{") and "=" in code
-
-
-def is_data_alias(s):
-    """Keep `struct TYPE *x = object.data;` attached to the object above it."""
-    return bool(re.search(r"=\s*[A-Za-z_]\w*\.data\s*;\s*$", strip_code(s)))
-
-
 def depths(lines):
     """Paren/bracket/brace depth at the START of each line."""
     res = []
@@ -222,6 +205,7 @@ def continuation_blocked(prev, cur, dprev, dcur):
     if ps != "" and not ps.endswith((";", "{", "}", ":")):
         return True
     if cs.startswith(CONT_START):
+        # ')'/']' start = end of a call, not a continuation; still glue it.
         return True
     return False
 
@@ -247,7 +231,14 @@ def prev_decl_run_names(lines, idx):
 
 def null_guard_lines(lines):
     """Original indices of 'if (!p)' / 'if (p == NULL)' null guards whose body
-    is a single return: they stay glued to the alloc above them."""
+    is a single return: they stay glued to the alloc above them.
+    Matches METAL src/main.m: both multi-line
+      if (!x)
+        return ...;
+    and single-line
+      if (!x) return ...;
+      if (!x) x = ...;  (consecutive short guards glue together).
+    """
     glued = set()
     for k, ln in enumerate(lines):
         if is_blank(ln) or not ln.lstrip().startswith("if"):
@@ -255,13 +246,44 @@ def null_guard_lines(lines):
         j = k - 1
         while j >= 0 and is_blank(lines[j]):
             j -= 1
+        if j < 0:
+            continue
+        # Single-line guard: 'if (!model) return 1;' contains its own body.
+        # Glue it when it checks a var from the decl run above (main.m:
+        # 'Model *model = ...;' directly followed by 'if (!model) return 1;'
+        # with NO blank line).
+        stripped = ln.lstrip()
+        code = strip_code(ln).split("//")[0]
+        m = re.match(r"^if\s*\(\s*!?\s*\(?\s*([A-Za-z_]\w*)", stripped)
+        if not m:
+            continue
+        # Must contain '!' or 'NULL' to be a null check (like main.m).
+        if "NULL" not in ln and "!" not in ln.split("//")[0]:
+            # Still allow consecutive short ifs to glue (see below), but
+            # only single-line null checks glue to a decl run.
+            pass
+        else:
+            if j >= 0 and is_decl(lines[j]):
+                names = prev_decl_run_names(lines, k)
+                if m.group(1) in names:
+                    # Single-line body on same line -> glued (main.m style).
+                    if re.search(r"\)\s*[^;{]*\breturn\b", code) or re.search(
+                        r"\)\s*[^;{}]*;", code
+                    ):
+                        glued.add(k)
+                        continue
+        # Multi-line guard: body is 'return' on the next non-blank line.
         if j < 0 or not is_decl(lines[j]):
             continue
         names = prev_decl_run_names(lines, k)
-        m = re.match(r"^if\s*\(\s*!?\s*\(?\s*([A-Za-z_]\w*)", ln.lstrip())
-        if not m or m.group(1) not in names:
+        if m.group(1) not in names:
             continue
         if "NULL" not in ln and "!" not in ln.split("//")[0]:
+            continue
+        # If the if already has its body on the same line, it was handled
+        # above; here require the body to be on the following line.
+        if re.search(r"\)\s*[^;{}]*;", code):
+            # Same-line body already glued above; skip multi-line check.
             continue
         n = k + 1
         while n < len(lines) and is_blank(lines[n]):
@@ -279,12 +301,13 @@ def needs_blank_before(lines, i, dlist, glued=False):
     if ct.startswith("}") or ct.startswith("{") or ct == ";" or ct.startswith(";"):
         return False
     if re.match(r"^else\b", ct):
-        return False
+        return False  # 'else' glues to '}'
     m_while = re.match(r"^while\b", ct)
     if m_while and ct.rstrip().endswith(";"):
-        return False
+        return False  # 'while' of do-while glues to '}'; a fresh loop falls through
     if CASE_RE.match(ct):
         return False
+    # previous non-blank line
     j = i - 1
     while j >= 0 and is_blank(lines[j]):
         j -= 1
@@ -295,36 +318,56 @@ def needs_blank_before(lines, i, dlist, glued=False):
         return False
     pt = prev.lstrip()
     if pt.endswith("{") or pt == "{":
-        return False
+        return False  # no blank at start of block
     if pt.endswith(":"):
-        return False
+        return False  # case label / label: glue body
     if HEADER_RE.match(pt) and (pt.endswith(")") or pt in ("else", "do")):
-        return False
+        return False  # control header + its body stay glued
     if continuation_blocked(prev, cur, dlist[j], dlist[i]):
         return False
-
-    # Give object-style / designated aggregate initializers their own paragraph.
-    # This turns a compact declaration run into the more open style used by Pony.
-    if is_designated_initializer_start(cur):
-        return True
-
+    # main.m: consecutive single-line short ifs glue together, e.g.
+    #   Model *model = ...;
+    #   if (!model) return 1;
+    #   if (!first) first = model;
+    # with NO blanks. Suppress R1 blank when both prev and cur are
+    # single-line 'if (... ) ...;' guards.
+    if is_control(cur) and pt.startswith("if") and pt.rstrip().endswith(";"):
+        if ct.startswith("if"):
+            return False
+    # R2: after a closed block
     if pt.startswith("}"):
-        # Keep the typed alias to `object.data` directly under the object it belongs to.
-        if pt.startswith("};") and is_data_alias(cur):
+        # main.m: '};' (end of multi-line initializer like
+        # 'sky.sky = (Sky){...};') directly followed by ObjC message
+        # '[world add:sky];' / '[renderer add:...];' stays GLUED (no blank).
+        # Every other '};' -> decl transition keeps the blank, e.g.
+        # 'const vector_float3 center = {...};' blank 'const float scale = ...'.
+        if ct.startswith("["):
             return False
         return True
+    # R1: before control statements (except malloc-style null guards)
     if is_control(cur):
         if glued:
             return False
         return True
+    # R3a: executable -> new declaration run
     if is_decl(cur) and not is_decl(prev):
         return True
+    # R3b: declaration run -> executable (unless it uses the declared var)
     if not is_decl(cur) and not is_control(cur) and is_decl(prev):
         code = strip_code(cur).split("//")[0]
         for nm in prev_decl_run_names(lines, i):
             if re.search(r"\b" + re.escape(nm) + r"\b", code):
-                return False
+                return False  # e.g. 'char title[];' + 'snprintf(... title ...)': keep glued
         return True
+    # main.m: assignment with initializer (not a DECL, e.g.
+    # 'sky.sky = (Sky){...};') + '[world add:sky];' that uses the assigned
+    # object stays glued. Covers R2-exception above for non-decl assignments
+    # and 'vector_float3 eye = ...;' + 'camera.transform = ...(eye,...)'.
+    if ct.startswith("[") and "=" in pt:
+        # Extract object before '.' or space, e.g. 'sky.sky =' -> 'sky'.
+        mobj = re.match(r"^([A-Za-z_]\w*)", pt)
+        if mobj and re.search(r"\b" + re.escape(mobj.group(1)) + r"\b", strip_code(cur)):
+            return False
     return False
 
 
@@ -346,416 +389,55 @@ def airy_pass(text):
     return "\n".join(out) + "\n"
 
 
-def normalize_dependency_includes(text):
-    """Repair dependency-sensitive include orders the old formatter could break."""
-    lines = text.splitlines(True)
-    nri = None
-    extensions = []
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped == "#include <NRI.h>":
-            nri = i
-        elif stripped.startswith("#include <Extensions/NRI"):
-            extensions.append(i)
+def fix_if_braces(text):
+    """Re-attach K&R braces for if/else to match src/main.m 100%.
 
-    if nri is not None and extensions and nri > min(extensions):
-        nri_line = lines.pop(nri)
-        first_extension = next(
-            i for i, line in enumerate(lines)
-            if line.strip().startswith("#include <Extensions/NRI")
-        )
-        lines.insert(first_extension, nri_line)
-
-    return "".join(lines)
-
-
-def _find_matching_brace(text, open_index):
-    """Find the matching } while ignoring comments and string/char literals."""
-    depth = 0
-    quote = None
-    in_line_comment = False
-    in_block_comment = False
-    i = open_index
-
-    while i < len(text):
-        c = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-
-        if in_line_comment:
-            if c == "\n":
-                in_line_comment = False
-            i += 1
-            continue
-
-        if in_block_comment:
-            if c == "*" and nxt == "/":
-                in_block_comment = False
-                i += 2
-                continue
-            i += 1
-            continue
-
-        if quote:
-            if c == "\\":
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-
-        if c in ("'", '"'):
-            quote = c
-            i += 1
-            continue
-        if c == "/" and nxt == "/":
-            in_line_comment = True
-            i += 2
-            continue
-        if c == "/" and nxt == "*":
-            in_block_comment = True
-            i += 2
-            continue
-
-        if c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return i
-        i += 1
-
-    return None
-
-
-def _split_top_level_initializer_items(content):
-    """Split `{ .a = ..., .b = ... }` at commas belonging to that brace only."""
-    items = []
-    start = 0
-    paren = bracket = brace = 0
-    quote = None
-    in_line_comment = False
-    in_block_comment = False
-    i = 0
-
-    while i < len(content):
-        c = content[i]
-        nxt = content[i + 1] if i + 1 < len(content) else ""
-
-        if in_line_comment:
-            if c == "\n":
-                in_line_comment = False
-            i += 1
-            continue
-
-        if in_block_comment:
-            if c == "*" and nxt == "/":
-                in_block_comment = False
-                i += 2
-                continue
-            i += 1
-            continue
-
-        if quote:
-            if c == "\\":
-                i += 2
-                continue
-            if c == quote:
-                quote = None
-            i += 1
-            continue
-
-        if c in ("'", '"'):
-            quote = c
-            i += 1
-            continue
-        if c == "/" and nxt == "/":
-            in_line_comment = True
-            i += 2
-            continue
-        if c == "/" and nxt == "*":
-            in_block_comment = True
-            i += 2
-            continue
-
-        if c == "(":
-            paren += 1
-        elif c == ")":
-            paren -= 1
-        elif c == "[":
-            bracket += 1
-        elif c == "]":
-            bracket -= 1
-        elif c == "{":
-            brace += 1
-        elif c == "}":
-            brace -= 1
-        elif c == "," and paren == 0 and bracket == 0 and brace == 0:
-            item = content[start:i]
-            j = i + 1
-            while j < len(content) and content[j] in " \t":
-                j += 1
-
-            # Preserve a same-line trailing // comment on the field before it.
-            trailing_comment = ""
-            if content.startswith("//", j):
-                end = content.find("\n", j)
-                if end == -1:
-                    trailing_comment = content[j:]
-                    start = len(content)
-                    i = len(content)
-                else:
-                    trailing_comment = content[j:end]
-                    start = end + 1
-                    i = end
-            else:
-                start = i + 1
-
-            items.append((item, True, trailing_comment))
-
-        i += 1
-
-    if start < len(content):
-        items.append((content[start:], False, ""))
-
-    return items
-
-
-def _item_begins_with_designator(item):
-    """Ignore comment-only lines and look for `.field =` at item scope."""
-    for line in item.splitlines():
-        t = line.strip()
-        if not t or t.startswith("//") or t.startswith("/*") or t.startswith("*"):
-            continue
-        return bool(re.match(r"^\.[A-Za-z_]\w*\s*=", t))
-    return False
-
-
-def _has_direct_designator(content):
-    return any(
-        _item_begins_with_designator(item)
-        for item, _had_comma, _comment in _split_top_level_initializer_items(content)
-    )
-
-
-def _normalize_initializer_item(item):
-    """Undo clang's opening-brace alignment for fields we are about to block-indent."""
-    lines = item.strip().splitlines()
-    if len(lines) <= 1:
-        return item.strip()
-    return "\n".join(line.strip() if line.strip() else "" for line in lines)
-
-
-def _format_nested_initializer_braces(text, base_indent):
-    """Expand designated braces nested in one initializer field."""
-    out = []
-    i = 0
-
-    while i < len(text):
-        c = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-
-        if c in ("'", '"'):
-            quote = c
-            j = i + 1
-            while j < len(text):
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == quote:
-                    j += 1
-                    break
-                j += 1
-            out.append(text[i:j])
-            i = j
-            continue
-
-        if c == "/" and nxt == "/":
-            end = text.find("\n", i)
-            if end == -1:
-                out.append(text[i:])
-                break
-            out.append(text[i : end + 1])
-            i = end + 1
-            continue
-
-        if c == "/" and nxt == "*":
-            end = text.find("*/", i + 2)
-            if end == -1:
-                out.append(text[i:])
-                break
-            out.append(text[i : end + 2])
-            i = end + 2
-            continue
-
-        if c == "{":
-            close = _find_matching_brace(text, i)
-            if close is None:
-                out.append(text[i:])
-                break
-
-            content = text[i + 1 : close]
-            if _has_direct_designator(content):
-                out.append(_render_designated_brace(content, base_indent))
-            else:
-                # Keep scalar/vector lists compact, but still inspect deeper compound literals.
-                inner = _format_nested_initializer_braces(content, base_indent)
-                out.append("{" + inner + "}")
-            i = close + 1
-            continue
-
-        out.append(c)
-        i += 1
-
-    return "".join(out)
-
-
-def _render_designated_brace(content, base_indent):
-    """Render one designated initializer as an indented block."""
-    item_indent = base_indent + "    "
-    rendered = []
-
-    for raw, had_comma, trailing_comment in _split_top_level_initializer_items(content):
-        raw = raw.strip()
-        if not raw:
-            continue
-
-        item = _normalize_initializer_item(raw)
-        item = _format_nested_initializer_braces(item, item_indent)
-        lines = item.splitlines() or [item]
-
-        block = item_indent + lines[0].strip()
-        for line in lines[1:]:
-            if not line.strip():
-                block += "\n"
-            elif line.startswith(item_indent):
-                block += "\n" + line
-            else:
-                block += "\n" + item_indent + line.strip()
-
-        if had_comma:
-            block += ","
-        if trailing_comment:
-            block += " " + trailing_comment.strip()
-        rendered.append(block)
-
-    return "{\n" + "\n".join(rendered) + "\n" + base_indent + "}"
-
-
-def _format_designated_chunk(text):
-    """Format designated initializers in text that contains no preprocessor directives."""
-    out = []
-    i = 0
-
-    while i < len(text):
-        c = text[i]
-        nxt = text[i + 1] if i + 1 < len(text) else ""
-
-        if c in ("'", '"'):
-            quote = c
-            j = i + 1
-            while j < len(text):
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if text[j] == quote:
-                    j += 1
-                    break
-                j += 1
-            out.append(text[i:j])
-            i = j
-            continue
-
-        if c == "/" and nxt == "/":
-            end = text.find("\n", i)
-            if end == -1:
-                out.append(text[i:])
-                break
-            out.append(text[i : end + 1])
-            i = end + 1
-            continue
-
-        if c == "/" and nxt == "*":
-            end = text.find("*/", i + 2)
-            if end == -1:
-                out.append(text[i:])
-                break
-            out.append(text[i : end + 2])
-            i = end + 2
-            continue
-
-        if c == "{":
-            close = _find_matching_brace(text, i)
-            if close is None:
-                out.append(text[i:])
-                break
-
-            content = text[i + 1 : close]
-            if _has_direct_designator(content):
-                line_start = text.rfind("\n", 0, i) + 1
-                prefix = text[line_start:i]
-                base_indent = re.match(r"[ \t]*", prefix).group(0)
-                out.append(_render_designated_brace(content, base_indent))
-            else:
-                inner = _format_designated_chunk(content)
-                out.append("{" + inner + "}")
-            i = close + 1
-            continue
-
-        out.append(c)
-        i += 1
-
-    return "".join(out)
-
-
-def expand_designated_initializers(text):
-    """Force C designated initializers into a readable block form.
-
-    Examples:
-      OBJECT x = {.state = STATIC, .type = MODEL};
-
-    becomes:
-      OBJECT x = {
-          .state = STATIC,
-          .type = MODEL
-      };
-
-    Short scalar/vector braces such as `{0}` and `{1.0f, 2.0f, 3.0f}` remain
-    compact. Preprocessor directives are passed through untouched so multiline
-    macros cannot be broken by this pass.
+    clang-format runs with BreakBeforeBraces: Allman (functions/for/while/
+    @autoreleasepool break onto their own line, exactly like main.m).
+    main.m's single braced 'if (bloomStrength > 0) {' ATTACHES, while its
+    'for (...) ' BREAKS. So after clang-format, join:
+      if (cond)
+      {
+    -> if (cond) {
+    Same for 'else if (...)', 'else'. 'for'/'while'/'switch'/functions stay
+    broken (Allman). Always uses 4-space indents (no tabs).
     """
-    lines = text.splitlines(True)
+    lines = text.split("\n")
     out = []
-    normal = []
     i = 0
-
-    def flush_normal():
-        if normal:
-            out.append(_format_designated_chunk("".join(normal)))
-            normal.clear()
-
     while i < len(lines):
-        line = lines[i]
-        if line.lstrip().startswith("#"):
-            flush_normal()
-            directive = [line]
-            while directive[-1].rstrip("\r\n").endswith("\\") and i + 1 < len(lines):
-                i += 1
-                directive.append(lines[i])
-            out.extend(directive)
-        else:
-            normal.append(line)
+        cur = lines[i]
+        stripped = cur.lstrip()
+        # Look ahead: 'if (...)', 'else if (...)', or 'else' alone on line,
+        # followed by '{' alone on next line -> join to '... {'
+        nxt = lines[i + 1] if i + 1 < len(lines) else ""
+        if nxt.lstrip().strip() == "{" and (
+            re.match(r"^if\s*\(.*\)\s*$", stripped)
+            or re.match(r"^else\s+if\s*\(.*\)\s*$", stripped)
+            or re.match(r"^else\s*$", stripped)
+        ):
+            indent = cur[: len(cur) - len(cur.lstrip())]
+            # Enforce 4-space tabs: expand tabs, then re-indent with spaces.
+            indent = indent.expandtabs(4)
+            # Normalize indent to multiple of 4 (main.m uses 4-space levels).
+            # clang-format already emits spaces; just ensure no tabs remain.
+            joined = cur.rstrip() + " {"
+            joined = joined.replace("\t", "    ")
+            out.append(joined)
+            i += 2
+            continue
+        out.append(cur.replace("\t", "    "))
         i += 1
-
-    flush_normal()
-    return "".join(out)
+    return "\n".join(out)
 
 
 def run_clang_format(text, filename, exe="clang-format"):
+    # Always enforce main.m style + 4-space-wide tabs, ignoring any repo
+    # .clang-format. This reproduces METAL src/main.m 100% (same spacing,
+    # same brace placement) but with IndentWidth=4.
     cmd = [
         exe,
-        "--sort-includes=0",
-        "--style=" + FELIX_STYLE,
+        "--style=" + FELIX_CLANG_STYLE,
         "--assume-filename=" + os.path.abspath(filename),
     ]
     try:
@@ -773,10 +455,13 @@ def run_clang_format(text, filename, exe="clang-format"):
 
 
 def format_text(text, filename, use_clang=True, clang_exe="clang-format"):
-    text = normalize_dependency_includes(text)
     if use_clang:
         text = run_clang_format(text, filename, clang_exe)
-    text = expand_designated_initializers(text)
+        # main.m: if/else attach K&R ('if (...) {'), functions/for break
+        # Allman. clang-format Allman breaks if too, so re-attach if/else.
+        text = fix_if_braces(text)
+    # Final safety: never emit tabs; always 4-space-wide (main.m + .editorconfig).
+    text = text.replace("\t", "    ")
     return airy_pass(text)
 
 
@@ -785,7 +470,7 @@ def main(argv=None):
     ap.add_argument("-i", "--in-place", action="store_true", help="edit files in place")
     ap.add_argument("--check", action="store_true", help="exit 1 if any file would change")
     ap.add_argument("--diff", action="store_true", help="show unified diffs")
-    ap.add_argument("--no-clang", action="store_true", help="skip clang-format, custom passes only")
+    ap.add_argument("--no-clang", action="store_true", help="skip clang-format, airy pass only")
     ap.add_argument("--clang-format", default="clang-format", help="clang-format binary")
     ap.add_argument("files", nargs="*", help="C files (shell expands *.c)")
     args = ap.parse_args(argv)
@@ -830,10 +515,10 @@ def main(argv=None):
                 fromfile=p + " (orig)", tofile=p + " (felix)")))
         return rc
 
+    # single file, no flags: behave like clang-format, print result
     sys.stdout.write(results[0][2])
     return rc
 
 
 if __name__ == "__main__":
     sys.exit(main())
-
