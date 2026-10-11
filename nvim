@@ -68,6 +68,7 @@ vim.filetype.add({
         fxh = "hlsl",
         usf = "hlsl",
         ush = "hlsl",
+        rv = "revo",
     },
 })
 
@@ -122,11 +123,18 @@ vim.lsp.config("clangd", {
     },
 })
 
+vim.lsp.config("revolt", {
+    cmd = { "revo", "lsp" },
+    filetypes = { "revo" },
+    root_markers = { "lib.json", "exe.json", ".git" },
+})
+
 vim.lsp.enable({
     "clangd",
     "zls",
     "ols",
     "slangd",
+    "revolt",
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
@@ -270,7 +278,8 @@ require("Comment").setup({
 --
 -- require("black-metal").load()
 
-vim.cmd.colorscheme("retrobox")
+-- vim.cmd.colorscheme("retrobox")
+vim.cmd.colorscheme("habamax")
 
 
 -- telescope open helpers
